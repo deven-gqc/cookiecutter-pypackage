@@ -1,30 +1,79 @@
-# !/usr/bin/env python
+# flake8: noqa
+from pkg_resources import parse_version
+from configparser import ConfigParser
+import setuptools
+assert parse_version(setuptools.__version__) >= parse_version('36.2')
 
-from distutils.core import setup
-setup(
-    name='cookiecutter-pypackage',
-    packages=[],
-    version='0.1.0',
-    description='Cookiecutter template for a Python package',
-    author='Audrey Roy Greenfeld',
-    license='BSD',
-    author_email='aroy@alum.mit.edu',
-    url='https://github.com/audreyr/cookiecutter-pypackage',
-    keywords=['cookiecutter', 'template', 'package', ],
-    python_requires='>=3.6',
-    classifiers=[
-        'Development Status :: 4 - Beta',
-        'Environment :: Console',
-        'Intended Audience :: Developers',
-        'Natural Language :: English',
-        'License :: OSI Approved :: BSD License',
-        'Programming Language :: Python',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: Implementation :: CPython',
-        'Programming Language :: Python :: Implementation :: PyPy',
-        'Topic :: Software Development',
-    ],
-)
+def read_requirements(filename: str):
+    with open(filename) as requirements_file:
+        import re
+
+        def fix_url_dependencies(req: str) -> str:
+            """Pip and setuptools disagree about how URL dependencies should be handled."""
+            m = re.match(
+                r"^(git\+)?(https|ssh)://(git@)?github\.com/([\w-]+)/(?P<name>[\w-]+)\.git", req
+            )
+            if m is None:
+                return req
+            else:
+                return f"{m.group('name')} @ {req}"
+
+        requirements = []
+        for line in requirements_file:
+            line = line.strip()
+            if line.startswith("#") or len(line) <= 0:
+                continue
+            requirements.append(fix_url_dependencies(line))
+    return requirements
+
+
+# note: all settings are in settings.ini; edit there, not here
+config = ConfigParser(delimiters=['='])
+config.read('settings.ini')
+cfg = config['DEFAULT']
+
+cfg_keys = 'version description keywords author author_email'.split()
+expected = cfg_keys + "lib_name user branch license status min_python audience language".split()   # noqa E501
+for o in expected:
+    assert o in cfg, "missing expected setting: {}".format(o)
+setup_cfg = {o:cfg[o] for o in cfg_keys}
+
+licenses = {
+    'apache2': ('Apache Software License 2.0','OSI Approved :: Apache Software License'),
+    'mit': ('MIT License', 'OSI Approved :: MIT License'),
+    'gpl2': ('GNU General Public License v2', 'OSI Approved :: GNU General Public License v2 (GPLv2)'),
+    'gpl3': ('GNU General Public License v3', 'OSI Approved :: GNU General Public License v3 (GPLv3)'),
+    'bsd3': ('BSD License', 'OSI Approved :: BSD License'),
+}
+statuses = [ '1 - Planning', '2 - Pre-Alpha', '3 - Alpha',
+    '4 - Beta', '5 - Production/Stable', '6 - Mature', '7 - Inactive' ]
+py_versions = '3.6 3.7 3.8 3.9 3.10'.split()
+
+requirements = read_requirements('requirements.txt')
+if cfg.get('pip_requirements'): requirements += cfg.get('pip_requirements','').split()
+min_python = cfg['min_python']
+lic = licenses.get(cfg['license'].lower(), (cfg['license'], None))
+dev_requirements = (cfg.get('dev_requirements') or '').split()
+
+setuptools.setup(
+    name = cfg['lib_name'],
+    license = lic[0],
+    classifiers = [
+        'Development Status :: ' + statuses[int(cfg['status'])],
+        'Intended Audience :: ' + cfg['audience'].title(),
+        'Natural Language :: ' + cfg['language'].title(),
+    ] + ['Programming Language :: Python :: '+o for o in py_versions[py_versions.index(min_python):]] + (['License :: ' + lic[1] ] if lic[1] else []),
+    url = cfg['git_url'],
+    packages = setuptools.find_packages(),
+    include_package_data = True,
+    install_requires = requirements,
+    extras_require={ 'dev': read_requirements('dev-requirements.txt') },
+    dependency_links = cfg.get('dep_links','').split(),
+    python_requires  = '>=' + cfg['min_python'],
+    long_description = open('README.md').read(),
+    long_description_content_type = 'text/markdown',
+    zip_safe = False,
+    entry_points = {
+      'console_scripts': cfg.get('console_scripts','').split(),
+    },
+    **setup_cfg)
